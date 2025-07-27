@@ -1,0 +1,9 @@
+{
+    "version": "1.0",
+    "test_name": "test_experiment",
+    "embedding_model": "text-embedding-3-small",
+    "llm_model": "gpt-4.1-mini",
+    "chunk_size": 100,
+    "chunk_overlap": 10,
+    "top_k": 1
+}
