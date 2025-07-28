@@ -1,6 +1,12 @@
+#데이터 파일 제외
 data/
-!data/processed/chunking.ipynb
-!data/processed/chunking.py
+*.pdf
+*.hwp
+
+#실험 파일 일부 제외
 *.idx
 *.ipynb
+
+#예외 파일
 !test.ipynb
+!data/processed/chunking.py
