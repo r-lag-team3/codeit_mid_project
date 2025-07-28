@@ -1,1 +1,4 @@
 data/
+!data/processed/chunking.ipynb
+!data/processed/chunking.py
+*.idx
