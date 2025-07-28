@@ -10,8 +10,8 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 
 
-class UpgradedRAGChain:
-    def __init__(self, retriever: Callable, model_name: str = "gpt-4.1-mini", openai_api_key: str = None):
+class RAGChain:
+    def __init__(self, retriever: Callable, model_name: str = "gpt-4.1-mini", openai_api_key: str = None, top_k: int = 10):
         """
         업그레이드된 RAG Chain 클래스
         
@@ -19,10 +19,12 @@ class UpgradedRAGChain:
             retriever: 검색을 수행하는 retriever 함수
             model_name: LLM 모델 이름
             openai_api_key: OpenAI API 키
+            top_k: rerank에서 사용할 상위 k개 문서 개수
         """
         self.retriever = retriever
         self.llm = ChatOpenAI(model_name=model_name, temperature=0.3)
         self.openai_api_key = openai_api_key
+        self.top_k = top_k
         
         # 기본 프롬프트 템플릿
         template = """
@@ -78,7 +80,7 @@ class UpgradedRAGChain:
                 filtered.append(doc)
         return filtered
 
-    def rerank(self, query: str, docs: List[Document], top_k: int = 10, 
+    def rerank(self, query: str, docs: List[Document], top_k: int = None, 
                model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2") -> List[Document]:
         """
         Cross-Encoder 기반 Re-Ranking
@@ -86,12 +88,14 @@ class UpgradedRAGChain:
         Args:
             query: 검색 쿼리
             docs: 문서 리스트
-            top_k: 상위 k개 문서 선택
+            top_k: 상위 k개 문서 선택 (None이면 self.top_k 사용)
             model_name: Cross-Encoder 모델 이름
             
         Returns:
             재순위화된 문서 리스트
         """
+        if top_k is None:
+            top_k = self.top_k
         try:
             cross_encoder = CrossEncoder(model_name)
             pairs = [[query, doc.page_content] for doc in docs]
@@ -128,7 +132,7 @@ class UpgradedRAGChain:
                 response = openai.ChatCompletion.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=256,
+                    max_tokens=512,
                     temperature=0.5,
                 )
                 summary = response['choices'][0]['message']['content']
@@ -139,7 +143,7 @@ class UpgradedRAGChain:
             final_response = openai.ChatCompletion.create(
                 model=model,
                 messages=[{"role": "user", "content": final_prompt}],
-                max_tokens=256,
+                max_tokens=512,
                 temperature=0.5,
             )
             return final_response['choices'][0]['message']['content']
@@ -182,7 +186,7 @@ class UpgradedRAGChain:
         # 키워드 필터
         filtered = self.keyword_filter(candidates, keywords)
         # 2차 Re-Ranking
-        reranked = self.rerank(query, filtered, top_k=10)
+        reranked = self.rerank(query, filtered)  # top_k는 인스턴스 변수 사용
         # LLM Map-Reduce 요약
         summary = self.summarize_chunks(reranked, query)
         return summary
