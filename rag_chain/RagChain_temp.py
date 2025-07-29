@@ -215,5 +215,6 @@ class RAGChain:
         
         return {
             'query': query,
-            'response': response
+            'response': response,
+            'retrieved_docs': docs,
         }
