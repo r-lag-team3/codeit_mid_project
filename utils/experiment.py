@@ -144,7 +144,7 @@ def experiment(version, experiment_name):
     print(f"RAG Chain을 생성하였습니다. LLM 모델: {llm_model_name}")
 
     # 결과 저장 로그 경로 설정
-    result_log_path = f"{experiment_path}/rag_results.jsonl"
+    result_log_path = f"{experiment_path}/{experiment_name}.jsonl"
 
     print("질의 테스트를 시작합니다")
     while True:

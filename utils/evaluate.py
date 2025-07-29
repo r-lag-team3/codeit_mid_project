@@ -2,11 +2,10 @@ import json
 from openai import OpenAI
 import os
 
-os.environ["OPENAI_API_KEY"] = ''
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-def evaluate_rag_response_no_answer(query, response, context):
+def evaluate_rag(query, response, context):
     prompt = f"""너는 RAG 시스템의 응답을 평가하는 AI 평가자입니다.
 
 사용자의 질의:
@@ -49,7 +48,7 @@ def evaluate_from_jsonl(jsonl_path):
         context = item["context"]
 
         print(f"\n===== 질의 {i+1} 평가 중 =====")
-        evaluation = evaluate_rag_response_no_answer(query, response, context)
+        evaluation = evaluate_rag(query, response, context)
         print(evaluation)
 
 if __name__ == "__main__":
