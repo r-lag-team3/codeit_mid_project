@@ -69,6 +69,7 @@ def load_split_documents(chunk_size, chunk_overlap, separators=None, tokenizer=N
 
 def experiment(version, experiment_name):
     # ------------------------------------------------------------------------------------------------------------------
+    step = 1
     experiment_path = f"./experiment/{experiment_name}"
     if not os.path.exists(experiment_path):
         os.makedirs(experiment_path)
@@ -76,9 +77,13 @@ def experiment(version, experiment_name):
     config_path = f"{experiment_path}/experiment_config.json"    
     if not os.path.exists(config_path):
         with open(config_path, "w", encoding="utf-8") as f:
-            print(f"실험 설정 파일을 생성합니다.")
-            embedding_model_name = input(f"Embedding 모델 이름을 입력하세요 (예: text-embedding-3-small): ")
-            llm_model_name = input(f"LLM 모델 이름을 입력하세요 (예: gpt-4.1-mini): ")
+            print(f"[{step}] 실험 설정 파일을 생성합니다.\n[모델명 참고]") 
+            step += 1
+            print("사용 가능 임베딩 모델: text-embedding-3-small")
+            print("사용 가능 LLM 모델: gpt-4.1-mini, gpt-4.1-nano, gpt-4.1, gpt-4o")
+
+            embedding_model_name = input(f"Embedding 모델 이름을 입력하세요 (미입력 시: text-embedding-3-small): ") or "text-embedding-3-small"
+            llm_model_name = input(f"LLM 모델 이름을 입력하세요 (미입력 시: gpt-4.1-mini): ") or "gpt-4.1-mini"
             chunk_size = int(input("Chunk 크기를 입력하세요 (예: 100): "))
             chunk_overlap = int(input("Chunk 오버랩 크기를 입력하세요 (예: 10): "))
             top_k = int(input("Top K 값을 입력하세요 (예: 3): "))
@@ -94,16 +99,18 @@ def experiment(version, experiment_name):
             }
 
             json.dump(config, f, indent=4, ensure_ascii=False)
-            print("실험 설정 파일을 저장했습니다.")
+            print("실험 설정 파일을 저장했습니다.\n")
     else:
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-            print(f"실험 설정 파일을 불러옵니다: {config}")
+            print(f"[{step}] 실험 설정 파일을 불러옵니다: \n{config}")
+            step += 1
             embedding_model_name = config.get("embedding_model", "text-embedding-3-small")
             llm_model_name = config.get("llm_model", "gpt-4.1-mini")
             chunk_size = config.get("chunk_size", 100)
             chunk_overlap = config.get("chunk_overlap", 10)
             top_k = config.get("top_k", 3)
+            print("실험 설정을 불러왔습니다.\n")
 
     readme_path = f"{experiment_path}/README.md"
     if not os.path.exists(readme_path):
@@ -117,36 +124,44 @@ def experiment(version, experiment_name):
             f.write(f"- Chunk 오버랩 크기: {chunk_overlap}\n")
             f.write(f"- Top K 값: {top_k}\n")
             f.write("\n## 실험 내용\n")
-        print("README.md 파일을 생성했습니다. 실험 내용을 기록해주세요.")
+        print(f"[{step}] README.md 파일을 생성했습니다. 실험 내용을 기록해주세요.\n")
+        step += 1
 
     # ------------------------------------------------------------------------------------------------------------------
     split_documents = load_split_documents(chunk_size, chunk_overlap, separators=None, tokenizer=None)
-    print(f"청킹 문서를 로드 완료하였습니다. 문서 개수: {len(split_documents)}")
+    print(f"[{step}] 청킹 문서를 로드 완료하였습니다.\n문서 개수: {len(split_documents)}\n")
+    step += 1
 
     embedding_model = OpenAIEmbeddings(model=embedding_model_name)
-    print(f"임베딩 모델을 설정하였습니다: {embedding_model_name}")
+    print(f"[{step}] 임베딩 모델을 설정하였습니다: embedding_model_name: {embedding_model_name}\n")
+    step += 1
 
     faiss_index_path = f"{experiment_path}/faiss_index.idx"
     if not os.path.exists(faiss_index_path):
-        print("FAISS 인덱스를 생성합니다...")
+        print(f"[{step}] FAISS 인덱스를 생성합니다...")
+        step += 1
         custom_faiss = FAISS.CustomFAISS.from_documents(documents=split_documents, embedding_model=embedding_model)
         faiss.write_index(custom_faiss.index, faiss_index_path)
-        print("FAISS 인덱스를 저장했습니다")
+        print("FAISS 인덱스를 저장했습니다\n")
     else:
         index = faiss.read_index(faiss_index_path)
-        print("FAISS 인덱스를 불러왔습니다")
+        print(f"[{step}] FAISS 인덱스를 불러왔습니다\n")
+        step += 1
         custom_faiss = FAISS.CustomFAISS(index=index, documents=split_documents, embedding_model=embedding_model)
 
     retriever = custom_faiss.as_retriever(top_k=top_k)
-    print(f"retriever를 생성하였습니다. Top K: {top_k}")
+    print(f"[{step}] retriever를 생성하였습니다. Top K: {top_k}\n")
+    step += 1
 
     rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name, top_k=top_k)
-    print(f"RAG Chain을 생성하였습니다. LLM 모델: {llm_model_name}")
+    print(f"[{step}] RAG Chain을 생성하였습니다. LLM 모델: {llm_model_name}\n")
+    step += 1
 
     # 결과 저장 로그 경로 설정
     result_log_path = f"{experiment_path}/{experiment_name}.jsonl"
 
-    print("질의 테스트를 시작합니다")
+    print(f"[{step}] 질의 테스트를 시작합니다")
+    step += 1
     while True:
         query = input("질의를 입력하세요 (종료하려면 'exit' 입력): ")
         if query.lower() == 'exit':
@@ -155,12 +170,23 @@ def experiment(version, experiment_name):
 
         result = rag.query(query)
         response_text = result.get('response')
-        retrieved_docs = retriever(query)
+        retrieved_docs = result.get('retrieved_docs', [])
         context_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
 
         print("\n" + "="*30)
         print(f"Q. {query}\n")
         print(f"A. {response_text}\n")
+        print("-"*30 + "\n")
+
+        print("[참고]")
+
+        for doc in retrieved_docs:
+            print(f"Retrieved Document: {doc.metadata.get('source', 'Unknown Source')}")
+            print(f"page: {doc.metadata.get('page', 'Unknown Page')}")
+            print(f"Content: {doc.page_content[:200]}...")
+            print(f"doc.page_content")
+            print("-"*30)
+
 
         with open(result_log_path, "a", encoding="utf-8") as f:
             json.dump({
