@@ -2,7 +2,6 @@ import json
 from openai import OpenAI
 import os
 
-# 키를 환경변수로 설정 (주의: 실제 운영 시에는 .env 방식이 안전)
 os.environ["OPENAI_API_KEY"] = ''
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
@@ -54,5 +53,5 @@ def evaluate_from_jsonl(jsonl_path):
         print(evaluation)
 
 if __name__ == "__main__":
-    jsonl_path = "./experiment/dw_ex_1/rag_results.jsonl"  # 경로 확인
+    jsonl_path = input("평가할 jsonl 파일 경로를 입력하세요: ")
     evaluate_from_jsonl(jsonl_path)
