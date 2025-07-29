@@ -12,6 +12,7 @@ data/
 
 #캐시
 */__pycache__
+__pycache__
 
 #체크포인트
 *.ipynb_checkpoints/
