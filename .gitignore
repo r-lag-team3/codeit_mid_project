@@ -9,3 +9,9 @@ data/
 
 #예외 파일
 !data/processed/chunking.py
+
+#캐시
+*/__pycache__
+
+#체크포인트
+*.ipynb_checkpoints/
