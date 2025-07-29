@@ -31,7 +31,7 @@ def chunking_documents(chunk_size, chunk_overlap, separators=None, tokenizer=Non
     if not os.path.exists(base_path):
         os.makedirs(base_path)
 
-    raw_data_file = "./data/files"
+    raw_data_file = "./data/pdf_data"
     all_file_list = os.listdir(raw_data_file)
 
     custom_splitter = chunking.CustomSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators=None, tokenizer=None) 
@@ -114,7 +114,7 @@ def experiment(version, experiment_name):
             llm_model_name = config.get("llm_model", "gpt-4.1-mini")
             chunk_size = config.get("chunk_size", 100)
             chunk_overlap = config.get("chunk_overlap", 10)
-            top_k = config.get("top_k", 3)
+            top_k = config.get("top_k", 10)
 
     readme_path = f"{experiment_path}/README.md"
 
@@ -165,7 +165,7 @@ def experiment(version, experiment_name):
 
     # ------------------------------------------------------------------------------------------------------------------
     # RAG Chain 생성
-    rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name)
+    rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name, top_k=top_k)
     print(f"RAG Chain을 생성하였습니다. LLM 모델: {llm_model_name}")
 
     # ------------------------------------------------------------------------------------------------------------------
