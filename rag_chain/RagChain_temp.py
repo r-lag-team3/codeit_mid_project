@@ -10,7 +10,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 
 
-class RAGchain:
+class RAGChain:
     def __init__(self, retriever: Callable, model_name: str = "gpt-4.1-mini", openai_api_key: str = None):
         """
         업그레이드된 RAG Chain 클래스
@@ -23,6 +23,7 @@ class RAGchain:
         self.retriever = retriever
         self.llm = ChatOpenAI(model_name=model_name, temperature=0.3)
         self.openai_api_key = openai_api_key
+        self.top_k = top_k
         
         # 기본 프롬프트 템플릿
         template = """

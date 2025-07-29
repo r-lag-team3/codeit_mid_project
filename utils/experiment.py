@@ -140,7 +140,7 @@ def experiment(version, experiment_name):
     retriever = custom_faiss.as_retriever(top_k=top_k)
     print(f"retriever를 생성하였습니다. Top K: {top_k}")
 
-    rag = RagChain_temp.RAGchain(retriever=retriever, model_name=llm_model_name)
+    rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name, top_k=top_k)
     print(f"RAG Chain을 생성하였습니다. LLM 모델: {llm_model_name}")
 
     # 결과 저장 로그 경로 설정
