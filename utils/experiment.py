@@ -171,8 +171,8 @@ def experiment(version, experiment_name):
         result = rag.query(query)
         response_text = result.get('response')
         retrieved_chunks = result.get('retrieved_chunks', [])
-        retrieved_docx = [chunk.get['doc'] for chunk in retrieved_chunks]
-        chunk_indices = [chunk.get['chunk_id'] for chunk in retrieved_chunks]
+        retrieved_docx = [chunk.get('doc') for chunk in retrieved_chunks]
+        chunk_indices = [int(chunk.get('chunk_id')) for chunk in retrieved_chunks]
 
         context_text = "\n\n".join([doc.page_content for doc in retrieved_docx])
 
@@ -195,7 +195,7 @@ def experiment(version, experiment_name):
                 "query": query,
                 "response": response_text,
                 "context": context_text,
-                "idx" : chunk_indices,
+                "indeices" : chunk_indices,
             }, f, ensure_ascii=False)
             f.write("\n")
 
