@@ -79,6 +79,6 @@ class CustomFAISS:
             query_vec = self.embedding_model.embed_query(query)
             query_np = np.array(query_vec).astype("float32").reshape(1, -1)
             distances, indices = self.index.search(query_np, top_k)
-            return [self.documents[i] for i in indices[0] if i != -1]
+            return [{'doc': self.documents[i], 'chunk_id': i} for i in indices[0] if i != -1]
         return retriever_fn
         

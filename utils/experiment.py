@@ -170,8 +170,11 @@ def experiment(version, experiment_name):
 
         result = rag.query(query)
         response_text = result.get('response')
-        retrieved_docs = result.get('retrieved_docs', [])
-        context_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        retrieved_chunks = result.get('retrieved_chunks', [])
+        retrieved_docx = [chunk.get('doc') for chunk in retrieved_chunks]
+        chunk_indices = [int(chunk.get('chunk_id')) for chunk in retrieved_chunks]
+
+        context_text = "\n\n".join([doc.page_content for doc in retrieved_docx])
 
         print("\n" + "="*30)
         print(f"Q. {query}\n")
@@ -180,11 +183,10 @@ def experiment(version, experiment_name):
 
         print("[참고]")
 
-        for doc in retrieved_docs:
+        for doc in retrieved_docx:
             print(f"Retrieved Document: {doc.metadata.get('source', 'Unknown Source')}")
             print(f"page: {doc.metadata.get('page', 'Unknown Page')}")
-            print(f"Content: {doc.page_content[:200]}...")
-            print(f"doc.page_content")
+            print(f"Content: {doc.page_content}")
             print("-"*30)
 
 
@@ -192,7 +194,8 @@ def experiment(version, experiment_name):
             json.dump({
                 "query": query,
                 "response": response_text,
-                "context": context_text
+                "context": context_text,
+                "indeices" : chunk_indices,
             }, f, ensure_ascii=False)
             f.write("\n")
 

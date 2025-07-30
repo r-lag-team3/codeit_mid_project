@@ -204,17 +204,24 @@ class RAGChain:
             
         Returns:
             질의 결과 딕셔너리
+                - query(str): 입력한 질문
+                - response(str): query에 대한 답변
+                - retrieved_chunks(list[dict]): 리트리버가 찾아온 유사한 Document들의 정보
+                    - dict keys
+                        - doc(Document)
+                        - chunk_idx(int)
         """
         if chunks is not None and embedding_model is not None:
             # 업그레이드된 파이프라인 사용
             response = self.rag_pipeline(query, chunks, embedding_model, keywords)
         else:
             # 기본 retriever 사용
-            docs = self.retriever(query)
+            retrieved_chunks = self.retriever(query)
+            docs = [chunk.get('doc') for chunk in retrieved_chunks]
             response = self._basic_summarize(docs, query)
         
         return {
             'query': query,
-            'response': response,
-            'retrieved_docs': docs,
+            'response': response,  
+            'retrieved_chunks': retrieved_chunks,  
         }
