@@ -1,5 +1,6 @@
 ﻿from typing import Callable, Optional
 from langchain.schema import Document
+import re
 
 class CustomSplitter:
     def __init__(
@@ -33,19 +34,45 @@ class CustomSplitter:
         self.tokenizer = tokenizer
 
     def split_text(self, text:str, metadata: Optional[dict] = None) ->list[Document]:  
-        if self.tokenizer:
-            tokens = self.tokenizer.tokenize(text)
-            chunks = []
+        if not self.tokenizer:
+            return self._recursive_split(text, self.separators)
 
-            for i in range(0, len(tokens), self.chunk_size - self.chunk_overlap):  # for문으로 청크사이즈 - 오버랩 크기만큼 진행 + 청크사이즈로 나눠서 토크나이저에 입력
-                chunk_tokens = tokens[i : i + self.chunk_size]                     # 단어를 자른 토큰
-                chunk_text = self.tokenizer.convert_tokens_to_string(chunk_tokens) # 문자열로 다시 합치기 # AutoTokenizer 기반의 방식
-                chunks.append(chunk_text)                                          # 단어가 길이로 인해 잘릴시 나누는게 가능한 단어 토큰으로 문장복원
-        else:
-            chunks = self._recursive_split(text, self.separators)
+        sentence_list = re.split(r'(?<=[.!?])\s+', text.strip())
         
-        return [Document(page_content=chunk, metadata=metadata or {}) for chunk in chunks]  # 최종 반환 타입 [] 리스트형의 Document 데이터 문장, 페이지 구성
+        # 1. 문장별로 미리 tokenized 길이 저장
+        sentence_token_pairs = [(sent, self.tokenizer.encode(sent, add_special_tokens=False)) for sent in sentence_list]
 
+        chunks = []
+        current_chunk_tokens = []
+        current_chunk_sentences = []
+        current_len = 0
+        i = 0
+
+        while i < len(sentence_token_pairs):
+            sent, token_ids = sentence_token_pairs[i]
+            if current_len + len(token_ids) > self.chunk_size:
+                if current_chunk_tokens:
+                    chunk_text = " ".join(current_chunk_sentences)
+                    chunks.append(chunk_text.strip())
+                    current_chunk_tokens = []
+                    current_chunk_sentences = []
+                    current_len = 0
+                else:
+                    # 문장이 chunk_size보다 큰 경우 잘라서라도 넣음
+                    chunk_text = self.tokenizer.decode(token_ids[:self.chunk_size], skip_special_tokens=True)
+                    chunks.append(chunk_text.strip())
+                    i += 1
+            else:
+                current_chunk_tokens.extend(token_ids)
+                current_chunk_sentences.append(sent)
+                current_len += len(token_ids)
+                i += 1
+
+        if current_chunk_sentences:
+            chunks.append(" ".join(current_chunk_sentences).strip())
+
+        return [Document(page_content=chunk, metadata=metadata or {}) for chunk in chunks]
+        
     def _recursive_split(self, text: str, separators: list[str])->list[str]: # 기본 방식의 청킹
         if len(text) <= self.chunk_size:
             return [text]
