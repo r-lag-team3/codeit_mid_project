@@ -71,3 +71,34 @@ def f1_score_at_k(retrieved_dict, gold_dict, k=-1):
         print(f"Strict f1_score@{k}: {total_f1_score:.4f}")
 
     return total_precision, total_recall, total_f1_score
+
+def evaluate_ndcg_at_k(retrieved_dict, gold_dict, k=3):
+
+    import math
+
+    total_ndcg = 0.0
+    query_count = 0
+
+    for query, retrieved_ids in retrieved_dict.items():
+        gold_ids = set(gold_dict.get(query, []))
+        if not gold_ids:
+            continue
+
+        # DCG 계산
+        dcg = 0.0
+        for rank, chunk_id in enumerate(retrieved_ids[:k], start=1):
+            if chunk_id in gold_ids:
+                dcg += 1 / math.log2(rank + 1)
+
+        # 이상적인 DCG(IDCG) 계산
+        ideal_hits = min(len(gold_ids), k)
+        idcg = sum(1 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+
+        ndcg = dcg / idcg if idcg > 0 else 0.0
+        total_ndcg += ndcg
+        query_count += 1
+
+    avg_ndcg = total_ndcg / query_count if query_count else 0.0
+    print(f"nDCG@{k}: {avg_ndcg:.4f}")
+    
+    return avg_ndcg
