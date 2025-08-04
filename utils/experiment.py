@@ -67,6 +67,19 @@ def load_split_documents(chunk_size, chunk_overlap, separators=None, tokenizer=N
 
     return split_documents
 
+# split_documents pkl로 정답 스팬 생성 및 저장
+from script import generate_span
+
+def create_gold_span(chunk_size, chunk_overlap, n=10):
+    base_path = "./data/processed/split_documents"
+    pkl_path = f"{base_path}/split_documents_{chunk_size}_{chunk_overlap}.pkl"
+    save_path = "./data/processed/span_list.json"
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        openai_key = input("OpenAI API 키를 입력하세요: ").strip()
+    generate_span.generate_span(pkl_path, openai_key, n, save_path)
+    print(f"정답 스팬이 {save_path}에 저장되었습니다.")
+
 def experiment(version, experiment_name):
     # ------------------------------------------------------------------------------------------------------------------
     step = 1
@@ -131,6 +144,9 @@ def experiment(version, experiment_name):
     split_documents = load_split_documents(chunk_size, chunk_overlap, separators=None, tokenizer=None)
     print(f"[{step}] 청킹 문서를 로드 완료하였습니다.\n문서 개수: {len(split_documents)}\n")
     step += 1
+
+    create_gold_span(chunk_size, chunk_overlap, n=10)
+    print(f"[{step}] 정답 스팬을 생성하였습니다.\n")
 
     embedding_model = OpenAIEmbeddings(model=embedding_model_name)
     print(f"[{step}] 임베딩 모델을 설정하였습니다: embedding_model_name: {embedding_model_name}\n")
