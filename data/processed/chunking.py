@@ -35,7 +35,11 @@ class CustomSplitter:
 
     def split_text(self, text:str, metadata: Optional[dict] = None) ->list[Document]:  
         if not self.tokenizer:
-            return self._recursive_split(text, self.separators)
+            texts = self._recursive_split(text, self.separators)
+            split_docs = []
+            for text in texts:
+                split_docs.append(Document(page_content=text, metadata=metadata))
+            return split_docs
 
         sentence_list = re.split(r'(?<=[.!?])\s+', text.strip())
         
