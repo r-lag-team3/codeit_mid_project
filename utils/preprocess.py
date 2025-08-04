@@ -2,7 +2,7 @@ import os
 import re
 import fitz
 import pickle
-import chunking
+from data.processed import chunking
 import pdfplumber
 from transformers import AutoTokenizer
 from langchain_core.documents import Document
