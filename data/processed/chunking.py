@@ -38,12 +38,10 @@ class CustomSplitter:
             texts = self._recursive_split(text, self.separators)
             split_docs = []
             for text in texts:
-                split_docs.append(Document(page_content=text, metadata=metadata))
+                split_docs.append(Document(page_content=text, metadata=metadata or {}))
             return split_docs
 
         sentence_list = re.split(r'(?<=[.!?])\s+', text.strip())
-        
-        # 1. 문장별로 미리 tokenized 길이 저장
         sentence_token_pairs = [(sent, self.tokenizer.encode(sent, add_special_tokens=False)) for sent in sentence_list]
 
         chunks = []

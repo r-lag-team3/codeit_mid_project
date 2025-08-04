@@ -7,6 +7,7 @@ import pdfplumber
 from transformers import AutoTokenizer
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
+# from konlpy.tag import Mecab
 from mecab import MeCab
 from langchain.schema import Document
 from typing import List, Union
@@ -15,8 +16,8 @@ from soynlp.tokenizer import LTokenizer
 
 def preprocess_text(text: str) -> str:
     # 특수문자 제거
+    # mecab = Mecab(dicpath='C:/mecab/mecab-ko-dic')
     mecab = MeCab()
-    
     text = re.sub(r"[^\uAC00-\uD7A3a-zA-Z0-9\s]", " ", text)
 
     # 1. 특수문자 제거 + 형태소 분석
@@ -160,50 +161,6 @@ def pdf_load(path: str) -> List[Document]:
                 documents.append(Document(page_content=full_text, metadata=metadata))
 
     return documents
-
-def chunking_documents(chunk_size, chunk_overlap, separators=None, tokenizer=None):
-    base_path = "/split_documents"
-    if not os.path.exists(base_path):
-        os.makedirs(base_path)
-
-    # raw_data_file = "/content/drive/MyDrive/midle_project/files"
-    raw_data_file = "./"
-    all_file_list = os.listdir(raw_data_file)
-
-    custom_splitter = chunking.CustomSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators= separators, tokenizer= tokenizer) 
-
-    split_documents = []
-
-    for file in all_file_list:
-        if not file.endswith('.pdf'):  # .pdf 파일이 아닌 경우 건너뛰기
-            continue  
-
-        file_path = os.path.join(raw_data_file, file).replace("\\", "/")
-        raw_documents = pdf_load(file_path)
-
-        for doc in raw_documents:
-            text = doc.page_content
-            meta_data = doc.metadata
-
-            splited_doc = custom_splitter.split_text(text=text, metadata=meta_data)
-            split_documents.extend(splited_doc)
-
-    path = f"{base_path}/split_documents_{chunk_size}_{chunk_overlap}_token2.pkl"
-    with open(path, "wb") as f:
-        pickle.dump(split_documents, f)
-
-def load_split_documents(chunk_size, chunk_overlap, separators=None, tokenizer=None):
-    base_path = "/split_documents"
-    path = f"{base_path}/split_documents_{chunk_size}_{chunk_overlap}_token2.pkl"
-
-    if not os.path.exists(path):
-        chunking_documents(chunk_size, chunk_overlap, separators, tokenizer)
-
-    with open(path, "rb") as f:
-        split_documents = pickle.load(f)
-
-    return split_documents
-
 
 class HFTokenizerWrapper:
     def __init__(self, tokenizer):
