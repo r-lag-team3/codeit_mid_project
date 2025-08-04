@@ -69,12 +69,14 @@ def chunking_documents_and_save(chunk_size, chunk_overlap, separators=None, toke
     if not os.path.exists(base_path):
         os.makedirs(base_path)
 
-    # pdf_data_file = "/content/drive/MyDrive/midle_project/files"
     pdf_data_file = "./data/pdf_data"
 
     all_file_list = os.listdir(pdf_data_file)
-
-    custom_splitter = chunking.CustomSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators=None, tokenizer=None) 
+    if tokenizer:
+        hf_tokenizer = preprocess.HFTokenizerWrapper(tokenizer=tokenizer)
+    else:
+        hf_tokenizer = None
+    custom_splitter = chunking.CustomSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators=None, tokenizer= hf_tokenizer) 
 
     split_documents = []
 
@@ -82,11 +84,11 @@ def chunking_documents_and_save(chunk_size, chunk_overlap, separators=None, toke
         if not file.endswith('.pdf'):  # .pdf 파일이 아닌 경우 건너뛰기
             continue  
 
-        file_path = os.path.join(pdf_data_file, file)
+        file_path = os.path.join(pdf_data_file, file).replace("\\", "/")
         if version == '1.0':
             raw_documents = pdf_load_PyPDFLoader(file_path)
         elif version == '2.0':
-            raw_documents = preprocess.pdf_load(file_path)
+            raw_documents = preprocess.pdf_load(file_path)  # PyMuPDF를 이용한 로드 + 전처리
 
         for doc in raw_documents:
             text = doc.page_content
@@ -197,7 +199,7 @@ def save_experiment_structure(version, experiment_name):
         json.dump(config, f, indent=4, ensure_ascii=False)
         print("실험 설정 파일을 저장했습니다.\n")
 
-def experiment(version, experiment_name):
+def experiment(version, experiment_name, tokenizer=None):
     # ------------------------------------------------------------------------------------------------------------------
     step = 1
     print(f"[{step}] 실험 구조 설정")
@@ -243,7 +245,7 @@ def experiment(version, experiment_name):
     chunk_document_path = f"./data/processed/split_documents/version{version}/chunksize{chunk_size}_overlap{chunk_overlap}.pkl"
     if not os.path.exists(chunk_document_path):
         print("청크 파일을 생성합니다.")
-        chunking_documents_and_save(chunk_size, chunk_overlap, separators=None, tokenizer=None, version='2.0')
+        chunking_documents_and_save(chunk_size, chunk_overlap, separators=None, tokenizer=tokenizer, version='2.0')
         print("청크 파일을 생성하였습니다.")
     else: 
         print("청크 파일이 존재합니다.")
