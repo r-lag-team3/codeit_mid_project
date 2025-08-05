@@ -2,6 +2,7 @@ import os
 import re
 import fitz
 import pickle
+import logging
 from data.processed import chunking
 import pdfplumber
 from transformers import AutoTokenizer
@@ -15,28 +16,82 @@ from soynlp.word import WordExtractor
 from soynlp.tokenizer import LTokenizer
 
 def preprocess_text(text: str) -> str:
-    # 특수문자 제거
-    # mecab = Mecab(dicpath='C:/mecab/mecab-ko-dic')
+    # MeCab 초기화
     mecab = MeCab()
+    # mecab = Mecab(dicpath='C:/mecab/mecab-ko-dic')
+
+    # 1. 특수문자 제거
     text = re.sub(r"[^\uAC00-\uD7A3a-zA-Z0-9\s]", " ", text)
 
-    # 1. 특수문자 제거 + 형태소 분석
-    tokens = mecab.morphs(text)
-
-    # 2. 문자 반복 제거 (ㅋㅋㅋㅋ, 한한한한)
-    tokens = [re.sub(r'(.)\1{2,}', r'\1', t) for t in tokens]
+    # 2. 문자 반복 제거
+    text = re.sub(r'(.)\1{2,}', r'\1', text)
 
     # 3. 단어 반복 제거 (글자글자글자)
-    tokens = [re.sub(r'(\w+)\1{2,}', r'\1', t) for t in tokens]
+    text = re.sub(r'(\w+)\1{2,}', r'\1', text)
 
-    # 4. 중복 단어 제거
-    tokens = clean_repetitions(tokens)
+    token_pos_pairs = mecab.pos(text) # 형태소 분석 후 (토큰, 품사) 쌍 생성
 
-    # 단음절 병합 기업 / 신용 / 병합 
-    tokens = merge_short_korean(tokens)
+    # 5. 토큰만 추출해서 중복 제거 (ngram 기반 반복 제거)
+    tokens = [token for token, _ in token_pos_pairs]
+    tokens = remove_ngram_repetitions(tokens)
 
-    # restored_text = restore_spacing_from_morphs(tokens)
-    return " ".join(tokens)
+    # 6. 중복 단어 제거 (seen 방식)
+    KOREAN_JKG = {'은', '는', '이', '가', '을', '를', '에', '의', '에서', '와', '과', '도', '로', '으로', '만'}
+    seen = set()
+    unique_tokens = []
+    for tok in tokens:
+        if tok not in seen or tok in KOREAN_JKG:
+            seen.add(tok)
+            unique_tokens.append(tok)
+
+    # 7. 단음절 병합
+    merged_tokens = merge_short_korean(unique_tokens)
+
+    # 8. 복합어 병합 (여기 추가!)
+    merged_tokens = merge_known_compounds(merged_tokens)
+
+    # 9. 띄어쓰기 복원 (품사 기반)
+    final_token_pos = mecab.pos(" ".join(merged_tokens))
+    restored_text = restore_spacing_with_pos(final_token_pos)
+
+    return restored_text
+
+def merge_known_compounds(tokens: List[str]) -> List[str]:
+    compound_dict = {
+        ("사용", "자"): "사용자",
+        ("대표", "자"): "대표자",
+        ("사업", "자"): "사업자",
+        ("신청", "인"): "신청인",
+        ("업무", "인"): "업무인",
+    }
+
+    result = []
+    i = 0
+    while i < len(tokens):
+        matched = False
+        for key in sorted(compound_dict, key=lambda x: -len(x)):  # 긴 조합 우선
+            if tuple(tokens[i:i+len(key)]) == key:
+                result.append(compound_dict[key])
+                i += len(key)
+                matched = True
+                break
+        if not matched:
+            result.append(tokens[i])
+            i += 1
+    return result
+
+def restore_spacing_with_pos(tokens_with_pos: List[tuple[str, str]]) -> str:
+    no_space_pos = {'JKS', 'JKB', 'JKC', 'JKG', 'JKO', 'JX', 'JC', 'EP', 'EF', 'EC', 'ETN', 'ETM'} # 조사, 어미로 분류되어 띄어쓰기된 단어 제외
+
+    restored = ""
+    for i, (token, pos) in enumerate(tokens_with_pos):
+        if i == 0:
+            restored += token
+        elif pos in no_space_pos:
+            restored += token
+        else:
+            restored += " " + token
+    return restored.strip()
 
 def merge_short_korean(tokens: List[str], min_unit: int = 2) -> List[str]:
     merged = []
@@ -95,29 +150,6 @@ def remove_ngram_repetitions(tokens: List[str], max_ngram=3) -> List[str]: # n g
             result.append(tokens[i])
             i += 1
     return result
-    
-def clean_repetitions(text: str) -> str:
-
-    text = re.sub(r'\s+', ' ', text)
-    # 1. 문자 반복 3번 이상 제거 (예: ㅋㅋㅋㅋ → ㅋ)
-    text = re.sub(r'(.)\1{2,}', r'\1', text)
-
-    # 2. 단어 반복 3번 이상 제거 (예: 글자글자글자 → 글자)
-    text = re.sub(r'\b(\w+)\1{2,}\b', r'\1', text)
-
-    # 3. 문장/구 단위 반복 (예: "이 문장은 반복된다 이 문장은 반복된다" → 1회만 남김)
-    tokens = text.split()
-
-    tokens = remove_ngram_repetitions(tokens, max_ngram=3)
-
-    # 문장/구 단위 반복 제거
-    seen = set()  
-    result = []
-    for token in tokens:
-        if token not in seen:
-            seen.add(token)
-            result.append(token)
-    return " ".join(result)
 
 def pdf_load(path: str) -> List[Document]:
     documents = []
@@ -152,8 +184,9 @@ def pdf_load(path: str) -> List[Document]:
     return documents
 
 class HFTokenizerWrapper:
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, max_length=512):
         self.tokenizer = tokenizer
+        self.max_length = max_length
 
     def tokenize(self, text):
         return self.tokenizer.tokenize(text)
@@ -162,7 +195,12 @@ class HFTokenizerWrapper:
         return self.tokenizer.convert_tokens_to_string(tokens)
 
     def encode(self, text, **kwargs):
-        return self.tokenizer.encode(text, **kwargs)
+        return self.tokenizer.encode(
+            text,
+            truncation=kwargs.get("truncation", True),
+            max_length=kwargs.get("max_length", self.max_length),
+            **kwargs
+        )
 
     def decode(self, token_ids, **kwargs):  
         return self.tokenizer.decode(token_ids, **kwargs)
