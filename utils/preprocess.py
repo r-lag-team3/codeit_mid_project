@@ -29,35 +29,14 @@ def preprocess_text(text: str) -> str:
     # 3. 단어 반복 제거 (글자글자글자)
     tokens = [re.sub(r'(\w+)\1{2,}', r'\1', t) for t in tokens]
 
-    # 4. N-gram 중복 단어 제거
-    tokens = remove_ngram_repetitions(tokens)
+    # 4. 중복 단어 제거
+    tokens = clean_repetitions(tokens)
+
     # 단음절 병합 기업 / 신용 / 병합 
     tokens = merge_short_korean(tokens)
-    
-    tokens = remove_ngram_repetitions(tokens)
 
     # restored_text = restore_spacing_from_morphs(tokens)
     return " ".join(tokens)
-
-def restore_spacing_from_morphs(tokens: List[str]) -> str:
-    # 조사, 어미 등 붙여쓰기 대상
-    no_space_after = {'은', '는', '이', '가', '을', '를', '의', '에', '에서', '한', '도', '만', '로', '과', '와'}
-
-    restored = ""
-    for i, token in enumerate(tokens):
-        if i == 0:
-            restored += token
-        elif token in no_space_after:
-            restored += token
-        else:
-            restored += " " + token
-    return restored.strip()
-
-def train_soynlp_tokenizer(corpus: List[str]) -> LTokenizer:
-    extractor = WordExtractor()
-    extractor.train(corpus)
-    word_scores = extractor.extract()
-    return LTokenizer(scores=word_scores)
 
 def merge_short_korean(tokens: List[str], min_unit: int = 2) -> List[str]:
     merged = []
@@ -118,6 +97,8 @@ def remove_ngram_repetitions(tokens: List[str], max_ngram=3) -> List[str]: # n g
     return result
     
 def clean_repetitions(text: str) -> str:
+
+    text = re.sub(r'\s+', ' ', text)
     # 1. 문자 반복 3번 이상 제거 (예: ㅋㅋㅋㅋ → ㅋ)
     text = re.sub(r'(.)\1{2,}', r'\1', text)
 
@@ -126,7 +107,11 @@ def clean_repetitions(text: str) -> str:
 
     # 3. 문장/구 단위 반복 (예: "이 문장은 반복된다 이 문장은 반복된다" → 1회만 남김)
     tokens = text.split()
-    seen = set()
+
+    tokens = remove_ngram_repetitions(tokens, max_ngram=3)
+
+    # 문장/구 단위 반복 제거
+    seen = set()  
     result = []
     for token in tokens:
         if token not in seen:
@@ -139,26 +124,30 @@ def pdf_load(path: str) -> List[Document]:
 
     with pdfplumber.open(path) as pdf_plumber, fitz.open(path) as pdf_fitz:
         for page_num, (page_p, page_f) in enumerate(zip(pdf_plumber.pages, pdf_fitz)):
+            try:
+                metadata = {"source": path, "page": page_num + 1}
+                texts = []
 
-            metadata = {"source": path, "page": page_num + 1}
-            texts = []
+                # 1. 표 추출
+                tables = page_p.extract_tables()
+                for table in tables:
+                    table_text = table_to_text(table)  # 기존 함수 활용
+                    if table_text:
+                        texts.append(preprocess_text(table_text))  # 중복 제거 등 전처리
 
-            # 1. 표 추출
-            tables = page_p.extract_tables()
-            for table in tables:
-                table_text = table_to_text(table)  # 기존 함수 활용
-                if table_text:
-                    texts.append(preprocess_text(table_text))  # 중복 제거 등 전처리
+                # 2. 일반 텍스트 (fitz로 더 정확하게 추출)
+                raw_text = page_f.get_text()
+                cleaned_text = preprocess_text(raw_text)
+                texts.append(cleaned_text)
 
-            # 2. 일반 텍스트 (fitz로 더 정확하게 추출)
-            raw_text = page_f.get_text()
-            cleaned_text = preprocess_text(raw_text)
-            texts.append(cleaned_text)
+                # 병합 후 Document 생성
+                full_text = "\n".join(texts).strip()
+                if full_text:
+                    documents.append(Document(page_content=full_text, metadata=metadata))
 
-            # 병합 후 Document 생성
-            full_text = "\n".join(texts).strip()
-            if full_text:
-                documents.append(Document(page_content=full_text, metadata=metadata))
+            except Exception as e:
+                logging.warning(f"[page {page_num+1}] PDF 파싱 중 오류 발생: {e}")
+                continue  # 문제 있는 페이지는 건너뜀
 
     return documents
 
