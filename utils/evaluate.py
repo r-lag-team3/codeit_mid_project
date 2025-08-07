@@ -1,7 +1,7 @@
 import json
 from openai import OpenAI
 import os
-
+import math
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -56,20 +56,26 @@ def load_jsonl(path):
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             item = json.loads(line)
-            results [item["query"]] =item["indeices"]
+            results[item["query"]] = [tuple(idx) for idx in item["indices"]]
     return results
+
 
 def load_gold(path):
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        return {item["query"]: item["chunk_id"] for item in data}
+        gold_dict = {}
+        for line in f:
+            item = json.loads(line)
+            query = item["query"]
+            chunk_id = item.get("chunk_id", [])
+            gold_dict[query] = [tuple(cid) for cid in chunk_id]  # (doc_id, page)
+        return gold_dict
 
 def evaluate_recall_at_k(retrieved_dict, gold_dict, k=3):
     total_gold = 0
     total_hit = 0
 
-    for query, retrieved_ids in retrieved_dict.items():
-        gold_ids = gold_dict.get(query)
+    for query, retrieved_ids in retrieved_dict.items(): # retrieved_ids는 chunk_id 리스트
+        gold_ids = gold_dict.get(query) 
         if not gold_ids:
             continue
 
@@ -124,8 +130,6 @@ def f1_score_at_k(retrieved_dict, gold_dict, k=-1):
     return total_precision, total_recall, total_f1_score
 
 def evaluate_ndcg_at_k(retrieved_dict, gold_dict, k=3):
-
-    import math
 
     total_ndcg = 0.0
     query_count = 0
