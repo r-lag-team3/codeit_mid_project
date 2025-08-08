@@ -2,8 +2,8 @@
 3팀의 중급 프로젝트: 문서 기반 RAG(Retrieval-Augmented Generation) 구현 및 성능 평가
 
 ## 제출(보고서, 협업일지)
-보고서PDF: https://github.com/r-lag-team3/codeit_mid_project/raw/main/report/3TEAM_REPORT.pdf
-협업일지:  https://github.com/r-lag-team3/co-log/blob/883c5c39f8f5ba98feb50a9ee550f19cfef3db78/README.md
+- 보고서PDF: https://github.com/r-lag-team3/codeit_mid_project/raw/main/report/3TEAM_REPORT.pdf
+- 협업일지:  https://github.com/r-lag-team3/co-log/blob/883c5c39f8f5ba98feb50a9ee550f19cfef3db78/README.md
 
 ## 프로젝트 개요
     - 다양한 PDF/HWP 문서로부터 정보를 추출, 전처리, 임베딩, 검색, LLM 기반 질의응답까지의 전체 RAG 파이프라인 구현
