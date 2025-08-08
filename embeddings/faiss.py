@@ -21,13 +21,14 @@ class CustomFAISS2:
 
 import faiss
 import numpy as np
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
+from sentence_transformers import SentenceTransformer
 from typing import List, Callable
 from langchain.schema import Document
 
 
 class CustomFAISS:
-    def __init__(self, index:faiss.IndexFlatL2, documents:list[Document], embedding_model:OpenAIEmbeddings | HuggingFaceEmbeddings):
+    def __init__(self, index:faiss.IndexFlatL2, documents:list[Document], embedding_model:OpenAIEmbeddings | SentenceTransformer):
         """
         # CustomFAISS 
         FAISS 인덱스를 사용하여 문서 검색을 수행
@@ -50,16 +51,23 @@ class CustomFAISS:
 
 
     @classmethod
-    def from_documents(cls, documents: List[Document], embedding_model: OpenAIEmbeddings | HuggingFaceEmbeddings) -> 'CustomFAISS':
+
+    def from_documents(cls, documents: List[Document], embedding_model: OpenAIEmbeddings | SentenceTransformer) -> 'CustomFAISS':
         texts = [doc.page_content for doc in documents]
         embeddings = []
-        max_api_batch = 100  # 한 번에 보낼 최대 문서 개수
+        if isinstance(embedding_model, OpenAIEmbeddings):
+            max_api_batch = 100  # 한 번에 보낼 최대 문서 개수
+            for i in range(0, len(texts), max_api_batch):
+                sub_chunk = texts[i:i+max_api_batch]
+                chunk_embeddings = embedding_model.embed_documents(sub_chunk)
+                embeddings.extend(chunk_embeddings)
 
-        for i in range(0, len(texts), max_api_batch):
-            sub_chunk = texts[i:i+max_api_batch]
-            chunk_embeddings = embedding_model.embed_documents(sub_chunk)
-            embeddings.extend(chunk_embeddings)
-
+        elif isinstance(embedding_model, SentenceTransformer):
+        # Hugging Face 모델은 전체 배치 가능
+            embeddings = embedding_model.encode(texts, convert_to_tensor=False)
+        else:
+            raise ValueError("embedding_model은 OpenAIEmbeddings 또는 SentenceTransformer여야 합니다.")
+        
         embeddings_np = np.array(embeddings).astype("float32")
         dim = embeddings_np.shape[1]
         index = faiss.IndexFlatL2(dim)
@@ -83,9 +91,19 @@ class CustomFAISS:
         ```
         """
         def retriever_fn(query: str) -> List[Document]:
-            query_vec = self.embedding_model.embed_query(query)
+            # 임베딩 모델 타입에 따라 쿼리 임베딩 생성
+            if hasattr(self.embedding_model, "embed_query"):
+                # OpenAIEmbeddings
+                query_vec = self.embedding_model.embed_query(query)
+            elif hasattr(self.embedding_model, "encode"):
+                # SentenceTransformer
+                query_vec = self.embedding_model.encode(query)
+            else:
+                raise ValueError("지원하지 않는 임베딩 모델입니다.")
+            
             query_np = np.array(query_vec).astype("float32").reshape(1, -1)
             distances, indices = self.index.search(query_np, top_k)
+
             return [
                 {'doc': self.documents[i], 'chunk_id': i}
                     for i, dist in zip(indices[0], distances[0])

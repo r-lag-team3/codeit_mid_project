@@ -10,7 +10,6 @@ import fitz
 
 # 클래스 
 from langchain_core.documents import Document
-from fitz import Document as fitzDocument
 
 # 파일 관리
 import os
@@ -19,6 +18,7 @@ import pickle
 
 # langchain 임베딩
 from langchain.embeddings import OpenAIEmbeddings
+from sentence_transformers import SentenceTransformer
 
 # 기타
 import faiss 
@@ -250,7 +250,10 @@ def experiment(version, experiment_name, tokenizer=None):
     # ------------------------------------------------------------------------------------------------------------------
     print(f"[{step}] 임베딩 및 리트리버 생성")
     step += 1 
-    embedding_model = OpenAIEmbeddings(model=embedding_model_name)
+    if embedding_model_name.startswith("text"):
+        embedding_model = OpenAIEmbeddings(model=embedding_model_name)
+    else:
+        embedding_model = SentenceTransformer(embedding_model_name, trust_remote_code=True)
     print(f"임베딩을 설정하였습니다. \n모델: {embedding_model_name}")
 
     faiss_index_path = f"{experiment_path}/faiss_index.idx"
