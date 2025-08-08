@@ -264,13 +264,13 @@ def experiment(version, experiment_name, tokenizer=None):
         index = faiss.read_index(faiss_index_path)
         print("FAISS 인덱스를 불러왔습니다")
         custom_faiss = FAISS.CustomFAISS(index=index, documents=split_documents, embedding_model=embedding_model)
-    retriever = custom_faiss.as_retriever(top_k=top_k)  # 후보 pool을 사용자가 입력한 top_k로 설정
     print(f"retriever를 생성하였습니다.\n")
     # ------------------------------------------------------------------------------------------------------------------
     print(f"[{step}] RAG Chain")
     step += 1
     # RAGChain의 top_k는 사용자 입력값을 사용 (최종 답변 청크 개수)
-    rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name, top_k=top_k)
+    # retriever에 CustomFAISS 객체를 직접 넘김
+    rag = RagChain_temp.RAGChain(retriever=custom_faiss, model_name=llm_model_name, top_k=top_k)
     rag.all_docs = split_documents
     print(f'RAG Chain을 생성했습니다. llm 모델: {llm_model_name}\n')
     # ------------------------------------------------------------------------------------------------------------------
