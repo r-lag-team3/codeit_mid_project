@@ -50,8 +50,6 @@ codeit_mid_project/
 │
 ├── rag_chain/                # RAG 파이프라인 구성 모듈
 │
-├── scripts/                  # 일회성 스크립트 (데이터 변환, 초기화 등)
-│
 ├── utils/                    # 각종 도구 스크립트 
 │
 ├── test.ipynb                # 실험용 주피터 노트북
