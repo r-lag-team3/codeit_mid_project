@@ -54,8 +54,6 @@ codeit_mid_project/
 │
 ├── test.ipynb                # 실험용 주피터 노트북
 │
-├── main.ipynb                # 코드 통합(보고서용 주피터 노트북)
-│
 ├── README.md
 └── .gitignore
 ```
