@@ -1,6 +1,6 @@
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.schema import Document
 from langchain.vectorstores import FAISS
+from embeddings.faiss import CustomFAISS
 from openai import OpenAI
 from typing import List, Optional, Callable
 from langchain.chat_models import ChatOpenAI
@@ -9,6 +9,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from sentence_transformers import CrossEncoder
 from collections import deque
 from keybert import KeyBERT
+import numpy as np
+import faiss
 import torch
 import re
 import os
@@ -249,7 +251,7 @@ class RAGChain:
             # '답변:' 뒤부터만 잘라내는 후처리 추천
             return decoded.split("답변:")[-1].strip()
 
-    def extract_doc_keyword(self, query: str) -> str:
+    def extract_doc_keyword(self, query: str) -> Optional[str]:
         """
         질문에서 문서명 키워드(명사구)를 정규표현식으로 추출
         예: '한국해양조사협회의', '한국해양조사협회에서', '한국해양조사협회 프로젝트' 등
@@ -258,15 +260,24 @@ class RAGChain:
             query: 질문 문자열
             
         Returns:
-            추출된 문서명 키워드
+            추출된 문서명 키워드 (없으면 None)
         """
         # 조사/구분자 패턴: '의', '에서', '에 대한', '에 관한', '프로젝트', '요구사항', '정의', '관리', '보고', '에'
-        pattern = r"([가-힣A-Za-z0-9\(\)]+)(?:의|에서|에 대한|에 관한|프로젝트|요구사항|정의|관리|보고|에)"
+        pattern = r"([가-힣A-Za-z0-9\(\)]+)(?:의|에서|에 대한|에 관한|프로젝트|요구사항|정의|관리|보고|에|은|는|이|가)"
         m = re.search(pattern, query)
+        stop_words = {"사업", "시스템", "프로젝트", "용역", "구축", "개선", "지원", "입찰", "관련", "및", "정보"}
         if m:
-            return m.group(1)
+            cand = m.group(1)
+            if cand in stop_words:
+                return None
+            else:
+                return cand
+
         # fallback: 첫 단어
-        return query.split()[0]
+        first_word = query.split()[0]
+        if first_word in stop_words:
+            return None
+        return first_word
     def rerank_by_distance(self, query: str, docs: List[Document], top_k: int = 5) -> list[Document]:
         """
         CrossEncoder를 활용하여 query와 문서 간의 relevance score 기반 rerank
@@ -304,8 +315,8 @@ class RAGChain:
             최종 답변
         """
 
-        # 1. retriever로 top_k개 후보를 먼저 뽑는다
-        candidates = self.retriever(query)
+    # 1. retriever로 top_k개 후보를 먼저 뽑는다
+        candidates = self.retriever.as_retriever(top_k=self.top_k)(query)
         docs = [chunk.get('doc') for chunk in candidates]
 
         # 2. 질문에서 문서명 키워드 추출 (명사구 기반)
@@ -317,18 +328,48 @@ class RAGChain:
             return os.path.splitext(os.path.basename(source))[0]
         
         all_docs = getattr(self, 'all_docs', docs)  # self.all_docs가 있으면 사용, 없으면 기존 docs 사용
-        filtered_docs = [doc for doc in all_docs if doc_keyword in get_filename(doc.metadata.get('source', ''))]
-        if not filtered_docs:
-            filtered_docs = docs  # 없으면 전체 사용
-        print("filtered_docs sources:", [doc.metadata.get('source', '') for doc in filtered_docs])
 
-        # --- filtered_docs에서 임베딩 기반 top_k 재검색 ---
-        # 기존: summary = self.summarize_chunks(filtered_docs[:self.top_k], query, past_keywords_text)
-        # 개선: top_k개가 넘으면 임베딩 기반 재검색
-        if len(filtered_docs) > self.top_k:
-            filtered_docs = self.rerank_by_distance(query, filtered_docs, top_k=self.top_k)
+        # doc_keyword가 None/빈 문자열이면 필터링을 건너뜀
+        if doc_keyword:
+            filtered_docs = [doc for doc in all_docs if doc_keyword in get_filename(doc.metadata.get('source', ''))]
         else:
-            filtered_docs = filtered_docs[:self.top_k]
+            filtered_docs = docs
+
+        # 3. 파일명 필터링된 docs가 있으면, 해당 docs pool로 임베딩 리트리버 생성 후 top_k 추출
+        if doc_keyword and filtered_docs:
+            print("[INFO] 파일명 필터링 적용: {}개".format(len(filtered_docs)))
+            # 임베딩 모델 추출 (self.retriever에서)
+            embedding_model = getattr(self.retriever, 'embedding_model', None)
+            # --- 임베딩 배치 처리 (max_api_batch=100) ---
+            max_api_batch = 100
+            texts = [doc.page_content for doc in filtered_docs]
+            all_embeddings = []
+            if hasattr(embedding_model, 'embed_documents'):
+                for i in range(0, len(texts), max_api_batch):
+                    sub_texts = texts[i:i+max_api_batch]
+                    sub_embeddings = embedding_model.embed_documents(sub_texts)
+                    all_embeddings.extend(sub_embeddings)
+            elif hasattr(embedding_model, 'encode'):
+                # SentenceTransformer 등
+                all_embeddings = embedding_model.encode(texts, convert_to_tensor=False)
+            else:
+                raise ValueError("지원하지 않는 임베딩 모델입니다.")
+            embeddings_np = np.array(all_embeddings).astype("float32")
+            dim = embeddings_np.shape[1]
+            index = faiss.IndexFlatL2(dim)
+            index.add(embeddings_np)
+            # FAISS 객체 생성 (CustomFAISS)
+            faiss_store = CustomFAISS(index=index, documents=filtered_docs, embedding_model=embedding_model)
+            retriever = faiss_store.as_retriever(top_k=self.top_k)
+            filtered_docs = [chunk.get('doc') for chunk in retriever(query)]
+        else:
+            if not doc_keyword:
+                print("[INFO] 파일명 키워드 없음, 리트리버 후보 사용")
+            else:
+                print("[INFO] 파일명 필터링 미적용, 리트리버 후보 사용")
+            filtered_docs = docs
+
+        print("filtered_docs sources:", [doc.metadata.get('source', '') for doc in filtered_docs])
 
         # 현재 질문에서 키워드 추출하여 기억에 저장
         extracted_keywords = self.extract_keywords(query)
