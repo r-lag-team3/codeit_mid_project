@@ -138,8 +138,6 @@ def question(ragchain, query, result_log_path):
             else:
                 sources[source].append(page)
 
-    context_text = "\n\n".join([doc.page_content for doc in retrieved_docx])
-
     print("\n" + "="*30)
     print(f"Q. {query}\n")
     print(f"A. {response_text}\n")

@@ -51,7 +51,6 @@ class CustomFAISS:
 
 
     @classmethod
-
     def from_documents(cls, documents: List[Document], embedding_model: OpenAIEmbeddings | SentenceTransformer) -> 'CustomFAISS':
         texts = [doc.page_content for doc in documents]
         embeddings = []
@@ -103,10 +102,10 @@ class CustomFAISS:
             
             query_np = np.array(query_vec).astype("float32").reshape(1, -1)
             distances, indices = self.index.search(query_np, top_k)
-
+            
             return [
                 {'doc': self.documents[i], 'chunk_id': i}
                     for i, dist in zip(indices[0], distances[0])
-                    if i != -1 and dist < 1.0  # 거리 조건 추가!
+                    if i != -1
             ]
         return retriever_fn
