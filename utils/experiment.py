@@ -3,7 +3,6 @@ from data.processed import chunking
 from embeddings import faiss as FAISS  # faiss와 구분하기 위해 대문자 사용
 from rag_chain import RagChain_temp
 from utils import preprocess
-from script import generate_span
 
 # PDF 로드
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,7 +10,6 @@ import fitz
 
 # 클래스 
 from langchain_core.documents import Document
-from fitz import Document as fitzDocument
 
 # 파일 관리
 import os
@@ -20,6 +18,7 @@ import pickle
 
 # langchain 임베딩
 from langchain.embeddings import OpenAIEmbeddings
+from sentence_transformers import SentenceTransformer
 
 # 기타
 import faiss 
@@ -107,22 +106,8 @@ def load_split_documents(path):
 
     return split_documents
 
-def create_gold_span(chunk_size, chunk_overlap, version='2.0', n=10):
-    pkl_base_path = f"./data/processed/split_documents/version{version}"
-    pkl_path = f"{pkl_base_path}/chunksize{chunk_size}_overlap{chunk_overlap}.pkl"
 
-    save_base_path = "./data/processed/span/"
-    if not os.path.exists(save_base_path):
-        os.makedirs(save_base_path)
-
-    save_path = f"{save_base_path}/span_list_from_chunksize_{chunk_size}_overlap{chunk_overlap}.json"
-    openai_key = os.environ.get("OPENAI_API_KEY")
-    if not openai_key:
-        openai_key = input("OpenAI API 키를 입력하세요: ").strip()
-    generate_span.generate_span(pkl_path, openai_key, n, save_path)
-    print(f"정답 스팬이 {save_path}에 저장되었습니다.")
-
-def load_sapn(path):
+def load_span(path):
     with open(path, 'r', encoding='utf-8') as f:
         span = json.load(f)
     return span
@@ -138,11 +123,20 @@ def get_sample_querys(span):
 def question(ragchain, query, result_log_path):
     result = ragchain.query(query)
     response_text = result.get('response')
-    retrieved_chunks = result.get('retrieved_chunks', [])
-    retrieved_docx = [chunk.get('doc') for chunk in retrieved_chunks]
-    chunk_indices = [int(chunk.get('chunk_id')) for chunk in retrieved_chunks]
+    retrieved_docx = result.get('retrieved_docs', [])
 
-    context_text = "\n\n".join([doc.page_content for doc in retrieved_docx])
+    # source 정보 추출 (문서명, 페이지)
+    sources = {}
+    for doc in retrieved_docx:
+        source = doc.metadata.get('source', 'Unknown Source')
+        page = doc.metadata.get('page', 'Unknown Page')
+        if source not in sources:
+            sources[source] = [page]
+        else:
+            if isinstance(page, list):
+                sources[source].extend(page)
+            else:
+                sources[source].append(page)
 
     print("\n" + "="*30)
     print(f"Q. {query}\n")
@@ -160,8 +154,7 @@ def question(ragchain, query, result_log_path):
         json.dump({
             "query": query,
             "response": response_text,
-            "context": context_text,
-            "indeices" : chunk_indices,
+            "source": sources,
         }, f, ensure_ascii=False)
         f.write("\n")
     
@@ -253,19 +246,12 @@ def experiment(version, experiment_name, tokenizer=None):
     split_documents = load_split_documents(chunk_document_path)
     print(f"청크 문서를 로드 완료하였습니다.\n문서 개수: {len(split_documents)}\n")
     # ------------------------------------------------------------------------------------------------------------------
-    print(f"[{step}] 정답 스팬 생성")
-    step += 1
-    span_path = f"./data/processed/span/span_list_from_chunksize_{chunk_size}_overlap{chunk_overlap}.json"
-    if not os.path.exists(span_path):
-        create_gold_span(chunk_size, chunk_overlap, n=10)
-        print("정답 스팬을 생성하였습니다.\n")
-    else:
-        print("정답 스팬이 존재합니다.\n")
-    
-    # ------------------------------------------------------------------------------------------------------------------
     print(f"[{step}] 임베딩 및 리트리버 생성")
     step += 1 
-    embedding_model = OpenAIEmbeddings(model=embedding_model_name)
+    if embedding_model_name.startswith("text"):
+        embedding_model = OpenAIEmbeddings(model=embedding_model_name)
+    else:
+        embedding_model = SentenceTransformer(embedding_model_name, trust_remote_code=True)
     print(f"임베딩을 설정하였습니다. \n모델: {embedding_model_name}")
 
     faiss_index_path = f"{experiment_path}/faiss_index.idx"
@@ -278,18 +264,20 @@ def experiment(version, experiment_name, tokenizer=None):
         index = faiss.read_index(faiss_index_path)
         print("FAISS 인덱스를 불러왔습니다")
         custom_faiss = FAISS.CustomFAISS(index=index, documents=split_documents, embedding_model=embedding_model)
-    retriever = custom_faiss.as_retriever(top_k=top_k)
-    print(f"retriever를 생성하였습니다. Top K: {top_k}\n")
+    print(f"retriever를 생성하였습니다.\n")
     # ------------------------------------------------------------------------------------------------------------------
     print(f"[{step}] RAG Chain")
     step += 1
-    rag = RagChain_temp.RAGChain(retriever=retriever, model_name=llm_model_name, top_k=top_k)
+    # RAGChain의 top_k는 사용자 입력값을 사용 (최종 답변 청크 개수)
+    # retriever에 CustomFAISS 객체를 직접 넘김
+    rag = RagChain_temp.RAGChain(retriever=custom_faiss, model_name=llm_model_name, top_k=top_k)
+    rag.all_docs = split_documents
     print(f'RAG Chain을 생성했습니다. llm 모델: {llm_model_name}\n')
-
     # ------------------------------------------------------------------------------------------------------------------
     print(f"[{step}] 질의 테스트를 시작합니다")
     step += 1
     result_log_path = f"{experiment_path}/result.jsonl"
+    span_path = f"./data/processed/span/span_list.json"
 
     while True:
         query = input("질의를 입력하세요\n(종료: exit, 자동 질의 입력: auto)\n질의: ")
@@ -299,7 +287,7 @@ def experiment(version, experiment_name, tokenizer=None):
 
         if query.lower() == 'auto':
             print('샘플 질의를 이용하여 질의를 진행합니다.')
-            span = load_sapn(span_path)
+            span = load_span(span_path)
             sample_querys = get_sample_querys(span)
             for query in sample_querys:
                 question(ragchain=rag, query=query, result_log_path=result_log_path)
