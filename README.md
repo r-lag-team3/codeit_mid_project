@@ -1,16 +1,33 @@
 # codeit_mid_project
-3팀's 중급 프로젝트
+3팀의 중급 프로젝트: 문서 기반 RAG(Retrieval-Augmented Generation) 파이프라인 및 성능 평가
+
+## 프로젝트 개요
+    - 다양한 PDF/HWP 문서로부터 정보를 추출, 전처리, 임베딩, 검색, LLM 기반 질의응답까지의 전체 RAG 파이프라인 구현
+    - 리트리버 성능 평가 및 실험 자동화
+
+## 기능 개요
+    - 문서 전처리 및 청크 생성
+    - FAISS 기반 임베딩 및 벡터 검색
+    - RAG 체인 및 LLM 연동
+    - GPT 기반 평가 및 정답 스팬 비교
+    - 실험 결과 자동 저장 및 관리
 
 ## version
 - 1.0: 기본 기능 구현
     - 청크 Document 생성
     - 리트리버를 통한 문서 검색
-    - 검색된 문서를 바탕으로 LLM 모델에 프롬프트 입력 및 답변 생성
+    - 검색된 문서를 바탕으로 Open AI LLM 모델에 프롬프트 입력 및 답변 생성
 
 - 2.0: 성능 평가 추가
     - GPT를 이용한 평가 기능 추가
     - 정답 스팬을 생성 기능 추가
     - 정답 스팬의 참고 문서와 리트리버가 찾은 참고 문서를 비교하여 리트리버의 성능 평가
+
+- 3.0: 성능 개선
+    - 전처리 작업 추가 진행
+    - 이전 대화내용 기억 기능 추가
+    - 제목 키워드 기반 필터 기능 추가
+    - Embedding, generator모델 Hugging Face와 Open AI 모두 사용
 
 ## 디렉토리 구조
 ```md
@@ -44,3 +61,20 @@ codeit_mid_project/
 ├── README.md
 └── .gitignore
 ```
+
+## 파일 설명
+    - chunking: 전처리된 텍스트, 청크, 정답 스팬(span_list.json) 등
+    - faiss: FAISS 임베딩 및 검색
+    - rag_chain: RAG 체인 구현
+    - API 키와 같은 민감 정보는 별도 환경변수 또는 config 파일로 관리
+
+## 사용 방법
+    - 데이터 준비: data/pdf_data/에 PDF 파일 저장
+    - 전처리 및 청크 생성: utils/preprocess.py 등 활용
+    - 임베딩 생성: embeddings/faiss.py 실행
+    - RAG 파이프라인 실행: rag_chain/ 내 모듈 사용
+    - 평가 및 실험: utils/evaluate.py, experiment/ 폴더 참고
+
+## 실험 및 평가
+    - 실험 결과(experiment/) 제공
+    - 평가 코드로 리트리버 성능, LLM 응답 품질 등 비교 가능
