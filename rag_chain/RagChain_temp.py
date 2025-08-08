@@ -324,7 +324,6 @@ class RAGChain:
 
         # --- filtered_docs에서 임베딩 기반 top_k 재검색 ---
         # 기존: summary = self.summarize_chunks(filtered_docs[:self.top_k], query, past_keywords_text)
-        filtered_docs = filtered_docs[:max(self.top_k * 2, 20)]
         # 개선: top_k개가 넘으면 임베딩 기반 재검색
         if len(filtered_docs) > self.top_k:
             filtered_docs = self.rerank_by_distance(query, filtered_docs, top_k=self.top_k)
