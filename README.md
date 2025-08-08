@@ -1,5 +1,5 @@
 # codeit_mid_project
-3팀의 중급 프로젝트: 문서 기반 RAG(Retrieval-Augmented Generation) 파이프라인 및 성능 평가
+3팀의 중급 프로젝트: 문서 기반 RAG(Retrieval-Augmented Generation) 구현 및 성능 평가
 
 ## 프로젝트 개요
     - 다양한 PDF/HWP 문서로부터 정보를 추출, 전처리, 임베딩, 검색, LLM 기반 질의응답까지의 전체 RAG 파이프라인 구현
