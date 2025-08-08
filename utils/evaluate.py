@@ -1,7 +1,8 @@
 import json
 from openai import OpenAI
-import os
+import os, unicodedata
 import math
+from json import JSONDecodeError
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -37,6 +38,63 @@ RAG가 참고한 문서(context):
 
     return completion.choices[0].message.content
 
+def _parse_item_to_tuples(item):
+    """item에서 비교용 (doc_path, page) 튜플 리스트로 변환"""
+    if "source" in item and isinstance(item["source"], dict):
+        pairs = []
+        for doc_path, pages in item["source"].items():
+            doc_path = canon_path(doc_path)
+            for p in pages:
+                pairs.append((doc_path, int(p)))
+        return pairs
+    elif "indices" in item:
+        pairs = []
+        for idx in item["indices"]:
+            if isinstance(idx, (list, tuple)) and len(idx) == 2:
+                # (doc_path, page) 형태라면 경로 정규화
+                doc, pg = idx
+                if isinstance(doc, str):
+                    doc = canon_path(doc)
+                pairs.append((doc, int(pg)))
+            else:
+                pairs.append(tuple(idx) if isinstance(idx, (list, tuple)) else (idx,))
+        return pairs
+    return []
+    
+def _load_any_json_or_jsonl(path):
+    """JSON 배열 또는 JSONL을 자동 감지하여 list[dict]로 반환"""
+    with open(path, "r", encoding="utf-8-sig") as f:
+        text = f.read().strip()
+        if not text:
+            return []
+        if text[0] == "[":  # JSON 배열
+            try:
+                data = json.loads(text)
+            except JSONDecodeError as e:
+                raise JSONDecodeError(f"[auto] JSON 배열 파싱 실패: {text[:120]} ...", text, e.pos)
+            if not isinstance(data, list):
+                raise ValueError("최상위 구조가 리스트가 아닙니다.")
+            return data
+        else:
+            # JSONL 처리
+            items = []
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    items.append(json.loads(s))
+                except JSONDecodeError as e:
+                    raise JSONDecodeError(f"[auto] JSONL 파싱 실패 (line {lineno}): {s[:120]} ...", s, e.pos)
+            return items
+        
+def canon_path(p: str) -> str:
+    p = os.path.normpath(p).replace("\\", "/")   # OS 표준화 + 슬래시 통일
+    p = unicodedata.normalize("NFC", p)          # 한글 등 유니코드 정규화
+    if p.startswith("./"):
+        p = p[2:]                                # ./ 제거(선택)
+    return p
+
 def evaluate_from_jsonl(jsonl_path):
     with open(jsonl_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -53,22 +111,22 @@ def evaluate_from_jsonl(jsonl_path):
 
 def load_jsonl(path):
     results = {}
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            item = json.loads(line)
-            results[item["query"]] = [tuple(idx) for idx in item["indices"]]
+    for item in _load_any_json_or_jsonl(path):
+        query = item.get("query")
+        if not query:
+            continue
+        results[query] = _parse_item_to_tuples(item)
     return results
 
-
 def load_gold(path):
-    with open(path, "r", encoding="utf-8") as f:
-        gold_dict = {}
-        for line in f:
-            item = json.loads(line)
-            query = item["query"]
-            chunk_id = item.get("chunk_id", [])
-            gold_dict[query] = [tuple(cid) for cid in chunk_id]  # (doc_id, page)
-        return gold_dict
+    gold = {}
+    for item in _load_any_json_or_jsonl(path):
+        query = item.get("query")
+        if not query:
+            continue
+        gold[query] = _parse_item_to_tuples(item)
+    return gold
+
 
 def evaluate_recall_at_k(retrieved_dict, gold_dict, k=3):
     total_gold = 0

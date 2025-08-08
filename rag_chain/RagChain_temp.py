@@ -1,6 +1,5 @@
-from langchain.embeddings import OpenAIEmbeddings
+
 from langchain.schema import Document
-from langchain.vectorstores import FAISS
 from openai import OpenAI
 from typing import List, Optional, Callable
 from langchain.chat_models import ChatOpenAI
@@ -86,50 +85,22 @@ class RAGChain:
             template=template,
             input_variables=["past_keywords", "context", "query"]
         )
-    def has_information(self, query: str, docs: List[Document], model: str = "gpt-4.1-mini") -> bool:
-        """
-        OpenAI LLM을 사용하여 문서에 질문에 대한 정보가 있는지 판단
-        """
-
-        # 문서 내용 결합 (최대 10개)
-        context = "\n\n".join(doc.page_content for doc in docs[:10])
-
-        # 시스템 메시지와 유저 메시지를 분리하여 명시
+    def has_information(self, query: str, reranked_docs: List[Document], model: str = "gpt-4.1-mini") -> bool:
+        context = "\n\n".join(doc.page_content for doc in reranked_docs[:10])  # 상위 N만
         messages = [
-            {
-                "role": "system",
-                "content": "문서에 질문에 대한 답이 있는지 판단하는 AI입니다. '있음' 또는 '없음'으로만 응답하세요.",
-            },
-            {
-                "role": "user",
-                "content": f"""
-                다음 문서에 질문에 대한 직접적인 정보나 답변이 포함되어 있습니까?
-                반드시 '있음' 또는 '없음'으로만 답하십시오.
-
-                문서:
-                {context}
-
-                질문:
-                {query}
-
-                답:
-                """,
-            },
+            {"role": "system", "content": "문서에 질문에 대한 답이 있는지 판단하는 AI입니다. '있음' 또는 '없음'으로만 응답하세요."},
+            {"role": "user", "content":
+                f"문서에 질문과 관련된 정보가 조금이라도 있으면 '있음', 전혀 없으면 '없음'이라고만 답하세요.\n\n문서:\n{context}\n\n질문:\n{query}\n\n답:"}
         ]
-
         try:
-            client = OpenAI()  # 환경변수에서 OPENAI_API_KEY 로드
-            res = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=5,
-            )
-            answer = res.choices[0].message.content.strip()
-            return "있음" in answer
+            client = OpenAI()
+            res = client.chat.completions.create(model=model, messages=messages, temperature=0.0, max_tokens=5)
+            ans = (res.choices[0].message.content or "").strip().replace(" ", "")
+            # ✅ 더 안전한 판정
+            return ans.startswith("있음")
         except Exception as e:
             print(f"[정보 유무 판단 실패] {e}")
-            return True  # 오류 발생 시 기본적으로 True 처리
+            return True
         
     def extract_keywords(self, text: str, top_n: int = 5) -> List[str]:
         """
@@ -225,9 +196,6 @@ class RAGChain:
         """
         context = "\n\n".join([doc.page_content for doc in docs])
         filled_prompt = self.prompt.format(past_keywords=past_keywords_text, context=context, query=question)
-
-        if not self.has_information(question, docs):
-            return "탐색된 문서에 해당 정보가 없습니다."
         
         if self.openai:
             response = self.llm.invoke(filled_prompt)
@@ -236,7 +204,7 @@ class RAGChain:
             inputs = self.tokenizer(filled_prompt, return_tensors="pt").to("cuda")
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=128,
                 temperature=0.2,
                 do_sample=True,
                 top_p=0.8,
@@ -263,8 +231,14 @@ class RAGChain:
         # 조사/구분자 패턴: '의', '에서', '에 대한', '에 관한', '프로젝트', '요구사항', '정의', '관리', '보고', '에'
         pattern = r"([가-힣A-Za-z0-9\(\)]+)(?:의|에서|에 대한|에 관한|프로젝트|요구사항|정의|관리|보고|에)"
         m = re.search(pattern, query)
+        stop_word = {"사업"}
         if m:
-            return m.group(1)
+            cand =  m.group(1)
+            if cand in stop_word:
+                return ""
+            else:
+                return cand       
+
         # fallback: 첫 단어
         return query.split()[0]
     def rerank_by_distance(self, query: str, docs: List[Document], top_k: int = 5) -> list[Document]:
@@ -289,66 +263,149 @@ class RAGChain:
         ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
         
         return [doc for doc, _ in ranked[:top_k]]
+    def _rrf_fuse(self, lists: list[list], k: int = 60) -> list:
+        """
+        Reciprocal Rank Fusion (RRF) by rank only.
+        lists: 각 리스트는 Document들의 순서 목록
+        k: RRF 상수 (보통 60 근처)
+        """
+        from collections import defaultdict
+        score = defaultdict(float)
 
+        def key(d):
+            # 문서 중복 식별 키 (source, page 중심)
+            src = d.metadata.get("source", "")
+            page = d.metadata.get("page", d.metadata.get("page_number", -1))
+            return (src, page)
+
+        # 랭크 합산
+        for lst in lists:
+            for r, d in enumerate(lst):
+                score[key(d)] += 1.0 / (k + r + 1)
+
+        # 키→Document 대표 매핑
+        rep = {}
+        for lst in lists:
+            for d in lst:
+                rep[key(d)] = d
+
+        fused = sorted(rep.values(), key=lambda d: score[key(d)], reverse=True)
+        return fused
+
+    def _retrieve_candidates(self, query: str) -> list[Document]:
+        """
+        멀티쿼리(원쿼리+확장쿼리)로 각 쿼리마다 임베딩 검색(=리트리버 호출),
+        RRF로 융합 후 (source,page) 단위 중복 제거.
+        """
+        # 1) 멀티 쿼리 생성
+        mq = getattr(self, "use_multi_query", True)   # ← 외부에서 끄고 켤 수 있음
+        num_variants = getattr(self, "num_query_variants", 3)
+        queries = self._expand_queries(query, n=num_variants) if mq else [query]
+
+        # 2) 각 쿼리별 후보 검색 (여기서 질문 임베딩 수행됨)
+        lists = []
+        pool_per_query = max(self.top_k * 3, 30)     # 풀 크게 뽑아서 RRF 이득
+        # retriever가 top_k를 내부에서 쓰는 경우가 많으니, 가급적 retriever를 생성할 때 top_k를 크게 주는 편 권장
+        for q in queries:
+            cands = self.retriever(q)
+            docs = []
+            for c in cands:
+                if isinstance(c, dict) and "doc" in c:
+                    docs.append(c["doc"])
+                elif isinstance(c, Document):
+                    docs.append(c)
+            lists.append(docs[:pool_per_query])
+
+        # 3) RRF 융합
+        fused = self._rrf_fuse(lists, k=60)
+
+        # 4) (source, page) 기준 중복 제거
+        seen = set()
+        dedup = []
+        for d in fused:
+            key = (d.metadata.get("source",""), d.metadata.get("page", d.metadata.get("page_number",-1)))
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup.append(d)
+
+        # 최종 후보 풀 반환 (후속 단계에서 파일명 필터 → CE 재랭크)
+        return dedup
+    
+    def _expand_queries(self, query: str, n: int = 3) -> list[str]:
+        """질문 변형 쿼리 생성: LLM 우선, 실패 시 키워드 기반 보조"""
+        variants = []
+        try:
+            client = OpenAI()
+            prompt = (
+                "다음 질문을 의미를 보존한 채 한국어로 서로 다른 형태로 3가지로 바꿔줘. "
+                "각 줄 하나씩, 불필요한 설명 없이."
+                f"\n질문: {query}"
+            )
+            res = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=256,
+            )
+            text = (res.choices[0].message.content or "").strip()
+            for line in text.splitlines():
+                t = line.strip("-• ").strip()
+                if t:
+                    variants.append(t)
+        except Exception:
+            pass
+
+        # LLM 실패/부족 시 키워드 기반 보조 변형
+        try:
+            kws = self.extract_keywords(query, top_n=5)
+            if kws:
+                variants.append(query + " " + " ".join(kws[:3]))
+        except Exception:
+            pass
+
+        # 최소한 원 쿼리는 포함
+        uniq = [query] + [v for v in variants if v and v != query]
+        return uniq[: n + 1]
+    
     def rag_pipeline(self, query: str, keywords: Optional[List[str]] = None) -> dict:
-        """
-        전체 RAG 파이프라인
-        
-        Args:
-            query: 질문
-            chunks: 문서 청크들
-            embedding_model: 임베딩 모델
-            keywords: 사용자가 입력한 필터링 키워드 (현재는 필터링에 사용 안 함)
-            
-        Returns:
-            최종 답변
-        """
-
-        # 1. retriever로 top_k개 후보를 먼저 뽑는다
-        candidates = self.retriever(query)
-        docs = [chunk.get('doc') for chunk in candidates]
-
-        # 2. 질문에서 문서명 키워드 추출 (명사구 기반)
+        # retriever의 top_k는 pool 용도로!
+        docs = self._retrieve_candidates(query)
         doc_keyword = self.extract_doc_keyword(query)
-        print("doc_keyword:", doc_keyword)
 
-        # --- 전체 docs에서 파일명 기준으로 필터링 ---
-        def get_filename(source):
-            return os.path.splitext(os.path.basename(source))[0]
-        
-        all_docs = getattr(self, 'all_docs', docs)  # self.all_docs가 있으면 사용, 없으면 기존 docs 사용
-        filtered_docs = [doc for doc in all_docs if doc_keyword in get_filename(doc.metadata.get('source', ''))]
-        if not filtered_docs:
-            filtered_docs = docs  # 없으면 전체 사용
-        print("filtered_docs sources:", [doc.metadata.get('source', '') for doc in filtered_docs])
-
-        # --- filtered_docs에서 임베딩 기반 top_k 재검색 ---
-        # 기존: summary = self.summarize_chunks(filtered_docs[:self.top_k], query, past_keywords_text)
-        # 개선: top_k개가 넘으면 임베딩 기반 재검색
-        if len(filtered_docs) > self.top_k:
-            filtered_docs = self.rerank_by_distance(query, filtered_docs, top_k=self.top_k)
+        if doc_keyword:  # 빈 문자열이면 건너뜀
+            def get_filename(src): return os.path.splitext(os.path.basename(src or ""))[0]
+            narrowed = [d for d in docs if doc_keyword in get_filename(d.metadata.get("source", ""))]
+            if narrowed:
+                filtered_docs = narrowed
+            else:
+                filtered_docs = docs
         else:
-            filtered_docs = filtered_docs[:self.top_k]
+            filtered_docs = docs
 
-        # 현재 질문에서 키워드 추출하여 기억에 저장
+        # 4) 현재 질문에서 키워드 추출하여 기억에 저장
         extracted_keywords = self.extract_keywords(query)
         self.keyword_memory.add_keywords(extracted_keywords)
 
-        # 이전 대화 키워드를 텍스트 문맥으로 준비
+        # 5) 이전 대화 키워드를 텍스트 문맥으로 준비
         past_keywords_list = self.keyword_memory.get_all_keywords()
         past_keywords_text = ", ".join(past_keywords_list) if past_keywords_list else "없음"
 
-        # LLM 요약 및 답변 생성 (이전 키워드 문맥 포함)
+        # 6) CE 재랭크 → 상위 top_k
+        ce_pool = filtered_docs[: max(self.top_k * 3, 30)]
+        reranked = self.rerank_by_distance(query, ce_pool, top_k=self.top_k)
+
+        # 7) LLM 요약 및 답변 생성 (이전 키워드 문맥 포함)
         if self.openai:
-            summary = self.summarize_chunks(filtered_docs[:self.top_k], query, past_keywords_text)
+            summary = self.summarize_chunks(reranked[: self.top_k], query, past_keywords_text)
         else:
-            # OpenAI가 아닌 경우 기본 요약 방식 사용
-            summary = self._basic_summarize_with_keywords(filtered_docs[:self.top_k], query, past_keywords_text)
-            
+            summary = self._basic_summarize_with_keywords(reranked[: self.top_k], query, past_keywords_text)
+
         return {
-            'response': summary,
-            'retrieved_docs': filtered_docs[:self.top_k]
+            "response": summary,
+            "retrieved_docs": reranked[: self.top_k],
         }
+
 
     def query(self, query: str, keywords: Optional[List[str]] = None) -> dict:
         """
